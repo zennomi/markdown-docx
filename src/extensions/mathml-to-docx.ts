@@ -1,4 +1,4 @@
-import { MathRun, MathFraction, MathRadical, MathSuperScript, MathSubScript, MathSubSuperScript, MathSum, MathIntegral, XmlComponent, MathComponent } from 'docx'
+import { BuilderElement, MathRun, MathFraction, MathRadical, MathSuperScript, MathSubScript, MathSubSuperScript, MathSum, MathIntegral, XmlComponent, MathComponent } from 'docx'
 import { XMLParser } from 'fast-xml-parser'
 
 let LO_COMPAT = false
@@ -24,6 +24,25 @@ class MathMatrix extends XmlComponent {
     super('m:m')
     // m:mPr could be added for alignment/spacing in the future
     for (const row of rows) this.root.push(new MathMatrixRow(row))
+  }
+}
+
+class MathAccent extends XmlComponent {
+  constructor(base: MathComponent[], accent: string) {
+    super('m:acc')
+    this.root.push(new BuilderElement({
+      name: 'm:accPr',
+      children: [new BuilderElement({
+        name: 'm:chr',
+        attributes: {
+          val: { key: 'm:val', value: accent },
+        },
+      })],
+    }))
+    this.root.push(new BuilderElement({
+      name: 'm:e',
+      children: base,
+    }))
   }
 }
 
@@ -58,10 +77,10 @@ function walkChildren(nodes: any[]): MathComponent[] {
     // Handle NAry operators with limits in various MathML shapes
     if (tag === 'munderover' || tag === 'munder' || tag === 'mover') {
       const kids = childrenOf(n)
-      const moNode = findFirst(kids, 'mo')
-      const opText = moNode ? directText(childrenOf(moNode)) : ''
-      const lower = tag !== 'mover' ? (kids[1] ? walkNode(kids[1]) : []) : []
-      const upper = tag !== 'munder' ? (kids[2] ? walkNode(kids[2]) : []) : []
+      const baseNode = kids[0]
+      const opText = tagName(baseNode) === 'mo' ? directText(childrenOf(baseNode)) : ''
+      const lower = tag === 'munder' || tag === 'munderover' ? (kids[1] ? walkNode(kids[1]) : []) : []
+      const upper = tag === 'mover' ? (kids[1] ? walkNode(kids[1]) : []) : (tag === 'munderover' ? (kids[2] ? walkNode(kids[2]) : []) : [])
       const base = walkChildren(nodes.slice(i + 1)) // treat rest of mrow as the base/body
       if (opText.includes('∑')) {
         if (LO_COMPAT) {
@@ -169,12 +188,30 @@ function walkNode(node: any): MathComponent[] {
     case 'munderover':
     case 'munder':
     case 'mover': {
-      // Already handled in walkChildren for lookahead/base capture; as a node, render its operator + limits plainly
       const m = childrenOf(node)
-      const op = textFrom(childrenOf(findFirst(m, 'mo') || {}))
-      const low = tag !== 'mover' ? (m[1] ? walkNode(m[1]) : []) : []
-      const up = tag !== 'munder' ? (m[2] ? walkNode(m[2]) : []) : []
-      return op.concat(low).concat(up)
+      const base = m[0] ? walkNode(m[0]) : []
+
+      if (tag === 'mover') {
+        const accentNode = m[1]
+        const accentTag = accentNode ? tagName(accentNode) : null
+        const accentText = accentNode && accentTag === 'mo' ? directText(childrenOf(accentNode)) : ''
+
+        if (accentText) {
+          return [new MathAccent(base, accentText) as unknown as MathComponent]
+        }
+
+        const over = accentNode ? walkNode(accentNode) : []
+        return base.concat(over)
+      }
+
+      if (tag === 'munder') {
+        const under = m[1] ? walkNode(m[1]) : []
+        return base.concat(under)
+      }
+
+      const under = m[1] ? walkNode(m[1]) : []
+      const over = m[2] ? walkNode(m[2]) : []
+      return base.concat(under).concat(over)
     }
     default:
       return walkChildren(kids)

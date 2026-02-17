@@ -45,6 +45,16 @@ $$
 a \times b \div c \pm d
 $$
 
+### Accent and Vector Examples
+
+Inline accents: $\vec{F}$, $\hat{x}$, $\overline{AB}$.
+
+Accented expression with operator base:
+
+$$
+\vec{x+y}
+$$
+
 ## Supported Features
 
 Currently supported LaTeX features:
